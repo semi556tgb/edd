@@ -4,95 +4,108 @@ local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
 local LocalPlayer = Players.LocalPlayer
 
-local boxEspLines = {}
+local boxes = {}  -- player -> {Line1, Line2, Line3, Line4}
 
--- Helper to make 4 box lines
-local function createBox()
-    local lines = {}
+-- Create thin white box lines
+local function createBoxLines()
+    local t = {}
     for i = 1, 4 do
-        local line = Drawing.new("Line")
-        line.Color = Color3.new(1, 1, 1)
-        line.Thickness = 1
-        line.Transparency = 1
-        line.Visible = false
-        lines[i] = line
+        local ln = Drawing.new("Line")
+        ln.Color = Color3.new(1,1,1)
+        ln.Thickness = 1
+        ln.Transparency = 1
+        ln.Visible = false
+        t[i] = ln
     end
-    return lines
+    return t
 end
 
--- Draw ESP Box
-local function drawBox(lines, topLeft, topRight, bottomRight, bottomLeft)
-    lines[1].From = topLeft
-    lines[1].To = topRight
+-- Draw rectangle with given corners
+local function drawBox(lines, topV, bottomV, boxWidth)
+    local halfW = boxWidth / 2
+    local tl = Vector2.new(topV.X - halfW, topV.Y)
+    local tr = Vector2.new(topV.X + halfW, topV.Y)
+    local bl = Vector2.new(bottomV.X - halfW, bottomV.Y)
+    local br = Vector2.new(bottomV.X + halfW, bottomV.Y)
 
-    lines[2].From = topRight
-    lines[2].To = bottomRight
+    lines[1].From, lines[1].To = tl, tr
+    lines[2].From, lines[2].To = tr, br
+    lines[3].From, lines[3].To = br, bl
+    lines[4].From, lines[4].To = bl, tl
 
-    lines[3].From = bottomRight
-    lines[3].To = bottomLeft
-
-    lines[4].From = bottomLeft
-    lines[4].To = topLeft
-
-    for _, line in ipairs(lines) do
-        line.Visible = true
+    for i = 1, 4 do
+        lines[i].Visible = true
     end
 end
 
--- Main drawing connection
-local conn
+-- Return Y of lowest foot part (supports R6, R15 rigs)
+local function getLowestFootY(char)
+    local parts = {}
+    if char:FindFirstChild("LeftFoot") then
+        parts = {char.LeftFoot, char.RightFoot}
+    elseif char:FindFirstChild("Left Leg") then
+        parts = {char["Left Leg"], char["Right Leg"]}
+    else
+        return nil
+    end
+
+    local lowest
+    for _, part in ipairs(parts) do
+        if part and part:IsA("BasePart") then
+            local y = part.Position.Y
+            lowest = (not lowest or y < lowest) and y or lowest
+        end
+    end
+    return lowest
+end
+
+-- Module with On/Off functionality
 local Module = {}
+local conn
 
 function Module.Enable()
+    if conn then return end
     conn = RunService.RenderStepped:Connect(function()
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                local char = player.Character
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character then
+                local char = plr.Character
+                local head = char:FindFirstChild("Head")
+                local lowestY = getLowestFootY(char)
+                if head and lowestY then
+                    local top3, topOn = Camera:WorldToViewportPoint(head.Position)
+                    local bot3, botOn = Camera:WorldToViewportPoint(Vector3.new(head.Position.X, lowestY, head.Position.Z))
+                    if topOn and botOn then
+                        local topV = Vector2.new(top3.X, top3.Y)
+                        local botV = Vector2.new(bot3.X, bot3.Y)
+                        local height = (botV - topV).Magnitude
+                        local width = height / 2
 
-                if not humanoid or not hrp then continue end
-
-                local height = humanoid.HipHeight + (humanoid.RigType == Enum.HumanoidRigType.R15 and 2.5 or 2)
-                local width = humanoid.RigType == Enum.HumanoidRigType.R15 and 2 or 2.5
-
-                local pos = hrp.Position
-                local topPos = pos + Vector3.new(0, height, 0)
-                local bottomPos = pos - Vector3.new(0, 2.5, 0)
-
-                local topVec, onTop = Camera:WorldToViewportPoint(topPos)
-                local bottomVec, onBottom = Camera:WorldToViewportPoint(bottomPos)
-
-                if onTop and onBottom then
-                    local boxHeight = math.abs(topVec.Y - bottomVec.Y)
-                    local boxWidth = boxHeight / 2
-
-                    local topLeft = Vector2.new(topVec.X - boxWidth / 2, topVec.Y)
-                    local topRight = Vector2.new(topVec.X + boxWidth / 2, topVec.Y)
-                    local bottomLeft = Vector2.new(bottomVec.X - boxWidth / 2, bottomVec.Y)
-                    local bottomRight = Vector2.new(bottomVec.X + boxWidth / 2, bottomVec.Y)
-
-                    boxEspLines[player] = boxEspLines[player] or createBox()
-                    drawBox(boxEspLines[player], topLeft, topRight, bottomRight, bottomLeft)
-                elseif boxEspLines[player] then
-                    for _, l in ipairs(boxEspLines[player]) do l.Visible = false end
+                        if not boxes[plr] then
+                            boxes[plr] = createBoxLines()
+                        end
+                        drawBox(boxes[plr], topV, botV, width)
+                    else
+                        if boxes[plr] then
+                            for _, ln in ipairs(boxes[plr]) do ln.Visible = false end
+                        end
+                    end
                 end
-            elseif boxEspLines[player] then
-                for _, l in ipairs(boxEspLines[player]) do l.Visible = false end
+            elseif boxes[plr] then
+                for _, ln in ipairs(boxes[plr]) do ln.Visible = false end
             end
         end
     end)
 end
 
 function Module.Disable()
-    if conn then conn:Disconnect() conn = nil end
-    for _, lines in pairs(boxEspLines) do
-        for _, l in ipairs(lines) do
-            l.Visible = false
-            l:Remove()
+    if conn then conn:Disconnect(); conn = nil end
+    for _, lines in pairs(boxes) do
+        for _, ln in ipairs(lines) do
+            ln.Visible = false
+            ln:Remove()
         end
     end
-    table.clear(boxEspLines)
+    boxes = {}
 end
 
 return Module
