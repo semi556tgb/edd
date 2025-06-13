@@ -1,29 +1,26 @@
 -- chams.lua
--- DendroESP Chams Module
-
 local DendroESP = loadstring(game:HttpGet("https://raw.githubusercontent.com/LordNahida/DendroESP/main/Source.lua"))()
 
 local Chams = {}
-local Players = game:GetService("Players")
+local Color = Color3.fromRGB(0, 255, 0) -- 💡 Change this to your desired color
 
 function Chams.Enable()
-    for _, player in pairs(Players:GetPlayers()) do
-        if player ~= Players.LocalPlayer and player.Character then
-            DendroESP:AddCharacter(player.Character, "Vertex")
-        end
+    for _,v in pairs(game.Players:GetChildren()) do 
+        if v.Character then 
+            local mode = "Vertex" -- BoundingBox, Vertex, Shadow, Orthgonal, Highlight
+            DendroESP:AddCharacter(v.Character, mode)
+            -- Force color change if possible
+            for _, obj in ipairs(v.Character:GetDescendants()) do
+                if obj:IsA("BasePart") and obj.Transparency < 1 then
+                    obj.Color = Color
+                end
+            end
+        end 
     end
-
-    Players.PlayerAdded:Connect(function(player)
-        player.CharacterAdded:Connect(function(char)
-            task.wait(0.5)
-            DendroESP:AddCharacter(char, "Vertex")
-        end)
-    end)
 end
 
 function Chams.Disable()
-    -- No built-in disable, but to stop further additions you can just not call Enable again.
-    -- Alternatively, recreate a toggle that clears ESP visuals if the lib supports it in future.
+    DendroESP:Clear()
 end
 
 return Chams
